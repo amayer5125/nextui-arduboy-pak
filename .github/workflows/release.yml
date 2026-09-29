@@ -1,0 +1,60 @@
+name: Release ARDENS Pakz
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+jobs:
+  build:
+    name: Build for ${{ matrix.target }}
+    runs-on: ubuntu-26.04-arm
+    container: ghcr.io/loveretro/${{ matrix.target }}-toolchain:main
+    strategy:
+      matrix:
+        target:
+          - tg5040
+          - tg5050
+          - my355
+          - h700
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Clone Ardens
+        run: git clone --branch v0.25.11 --single-branch --recursive https://github.com/tiberiusbrown/Ardens.git
+      - name: Build
+        working-directory: ./Ardens
+        run: |
+          cmake -B build-libretro -DCMAKE_BUILD_TYPE=Release -DARDENS_LIBRETRO=ON
+          cmake --build build-libretro --config Release --target ardens_libretro
+          aarch64-nextui-linux-gnu-strip --strip-unneeded build-libretro/ardens_libretro.so
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v7
+        if: github.ref_type == 'tag'
+        with:
+          name: artifact-${{ matrix.target }}
+          path: Ardens/build-libretro/ardens_libretro.so
+  release:
+    name: Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-26.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Download all artifacts
+        uses: actions/download-artifact@v8
+      - name: Create Package
+        run: |
+          for target in tg5040 tg5050 my355 h700; do
+            directory="Emus/$target/ARDENS.pak"
+            mkdir -p "$directory"
+            cp default.cfg launch.sh "artifact-$target/ardens_libretro.so" "$directory"
+          done
+          zip -r ARDENS.pakz Emus
+      - name: Release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: ARDENS.pakz
